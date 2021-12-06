@@ -1,0 +1,749 @@
+---
+title: "Sample Size Estimation using a Latent Variable Model for Mixed Outcome Co-Primary, Multiple Primary and Composite Endpoints: Empirical results"
+author: "Martina McMenamin"
+date: 2021-11-20
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+source(file.path('R', 'load_packages.R'))
+source(file.path('R', 'helper_functions.R'))
+```
+
+This file generates the results shown in the manuscript 'Sample Size Estimation using a Latent Variable Model for Mixed Outcome Co-Primary, Multiple Primary and Composite Endpoints' by McMenamin et al. Some of the empirical results related to the composite endpoint are not generated within this file as they required the model to be fitted to generated data at each step and therefore require large amounts of computational power. The code for the sample size and power for the composite endpoint are still shown for completeness and code for the R package and Shiny app are available at <https://github.com/martinamcm>. 
+
+#### Power for MUSE example - Figure 1
+
+```{r}
+
+# Define inputs 
+
+nest<-seq(0,800,10)
+
+Sigcorr<-matrix(0,4,4)
+Sigcorr[1,1]<-1
+Sigcorr[2,2]<-1
+Sigcorr[3,3]=Sigcorr[4,4]<- 1
+Sigcorr[1,2]=Sigcorr[2,1]<- 0.448
+Sigcorr[1,3]=Sigcorr[3,1]<- 0.521
+Sigcorr[1,4]=Sigcorr[4,1]<- 0.003
+Sigcorr[2,3]=Sigcorr[3,2]<- 0.445
+Sigcorr[2,4]=Sigcorr[4,2]<- (-0.0309)
+Sigcorr[3,4]=Sigcorr[4,3]<- 0.066
+
+delta_est = c(0.88/sqrt(18), 0.38/sqrt(0.35), 0.24, 0.40)
+
+# Co-primary
+power_coprim <- 
+  map(.x = nest, 
+      .f = power.known.var,
+      K = 4, 
+      Sigma = Sigcorr, 
+      delta = delta_est,
+      power = NULL,
+      sig.level = 0.05
+)  %>%
+  map_dbl(pluck, "power") 
+
+
+#Multiple primary
+
+power_mult <- 
+    map(.x = nest, 
+        .f = atleast.one.endpoint,
+        K = 4, 
+        Sigma = Sigcorr, 
+        delta = delta_est,
+        power = NULL,
+        sig.level = 0.05/4
+)  %>%
+  map_dbl(pluck, "power") 
+
+
+# Composite
+
+power_comp <- 
+  map_dbl(
+    .x = nest,
+    .f = powerfunc,
+    mean = 0.1281464,
+    var = 0.04801441,
+    alpha = 0.05
+)
+
+# Individual
+
+power_y1 <- 
+    map_dbl(
+      .x = nest,
+      .f = powerfunc,
+      mean = 0.88,
+      var = 18,
+      alpha = 0.05
+)
+
+power_y2 <-
+    map_dbl(
+      .x = nest,
+      .f = powerfunc,
+      mean = 0.38,
+      var = 0.35,
+      alpha = 0.05
+)
+
+power_y3 <-
+    map_dbl(
+      .x = nest,
+      .f = powerfunc,
+      mean = 0.24,
+      var = 1,
+      alpha = 0.05
+)
+
+power_y4 <-
+    map_dbl(
+      .x = nest,
+      .f = powerfunc,
+      mean = 0.40,
+      var = 1,
+      alpha = 0.05
+)
+
+data_power <- data.frame(power = c(power_coprim, power_mult, power_comp,
+                                   power_y1, power_y2, power_y3, power_y4),
+                         endpoint = c(rep("Co-primary", length(nest)),
+                                      rep("Multiple Primary", length(nest)),
+                                      rep("Composite", length(nest)),
+                                      rep("SLEDAI", length(nest)),
+                                      rep("PGA", length(nest)),
+                                      rep("BILAG", length(nest)),
+                                      rep("Taper", length(nest))
+                                      ),
+                        sample = rep(nest, 7) 
+)
+
+data_power$endpoint <- factor(data_power$endpoint,
+                             levels=c(
+                               "Co-primary","Multiple Primary","Composite","SLEDAI","PGA","BILAG","Taper"))
+
+Powerplot <- 
+  ggplot(data_power,
+         aes(x = sample,
+             y = power,
+             color = endpoint)
+         ) + 
+  geom_line(
+    aes(linetype = endpoint)
+    ) +
+  scale_linetype_manual(
+    values = c(
+      rep("solid",3),
+      rep("dotdash",4)
+      )
+    ) +
+  ylim(c(0,1)) + 
+  geom_hline(
+    yintercept = 0.8, linetype=3
+    ) +
+  ylab("Power") + 
+  xlab("Sample size per group") + 
+  scale_color_brewer(palette = "Dark2") + 
+  theme_light()
+
+Powerplot
+
+```
+
+
+
+#### Sample sizes for co-primary and multiple primary - Table 1
+
+```{r}
+
+delta1 <- c(0.88/sqrt(18), 0.38/sqrt(0.35), 0.24, 0.40)
+delta2 <- c(0.88/sqrt(19), 0.38/sqrt(0.35), 0.24, 0.40)
+delta3 <- c(0.88/sqrt(20), 0.38/sqrt(0.35), 0.24, 0.40)
+
+delta4 <- c(0.88/sqrt(18), 0.38/sqrt(0.45), 0.24, 0.40)
+delta5 <- c(0.88/sqrt(18), 0.38/sqrt(0.55), 0.24, 0.40)
+delta6 <- c(0.88/sqrt(18), 0.38/sqrt(0.65), 0.24, 0.40)
+
+delta <- list(delta1, delta2, delta3, delta4, delta5, delta6)
+
+samplesize_coprim <-
+    lapply(X = delta, 
+       FUN = power.known.var,
+       K = 4,
+       n = NULL,
+       Sigma = Sigcorr,
+       sig.level = 0.025,
+       power = 0.80
+       ) 
+
+samplesize_mult <-     
+  lapply(X = delta, 
+       FUN = atleast.one.endpoint,
+       K = 4,
+       n = NULL,
+       Sigma = Sigcorr,
+       sig.level = 0.025/4,
+       power = 0.80
+       ) 
+  
+# sample size in each arm for univariate endpoints - show power = 80%
+
+  n_y1 <-  
+    map2_dbl(.x = c(18, 19, 20),
+            .y = c(365, 386, 406),
+      .f = powerfunc, 
+      mean = 0.88,
+      alpha = 0.025)
+    
+  n_y2 <- 
+    map2_dbl(
+      .x = c(0.45, 0.55, 0.65),
+      .y = c(49, 60, 71),
+      .f = powerfunc, 
+      mean = 0.38,
+      alpha = 0.025)
+    
+  n_y3 <- powerfunc(0.24, 1, 0.025, 273)
+  n_y4 <- powerfunc(0.40,1,0.025,99)
+
+```
+
+
+#### Overall power for different correlation based on MUSE example - Figure 2
+
+```{r}
+
+SigcorrH<-matrix(0,4,4)
+SigcorrH[1,1] = SigcorrH[2,2] = SigcorrH[3,3]=SigcorrH[4,4] <- 1
+SigcorrH[1,2]=SigcorrH[2,1] = SigcorrH[1,3] = SigcorrH[3,1] = SigcorrH[1,4]=SigcorrH[4,1] =
+  SigcorrH[2,3]=SigcorrH[3,2] = SigcorrH[2,4]=SigcorrH[4,2] = SigcorrH[3,4]=SigcorrH[4,3] <- 0.8
+
+Sigcorr0<-matrix(0,4,4)
+Sigcorr0[1,1] = Sigcorr0[2,2] = Sigcorr0[3,3]=Sigcorr0[4,4]<-1
+Sigcorr0[1,2]=Sigcorr0[2,1] = Sigcorr0[1,3]=Sigcorr0[3,1] = Sigcorr0[1,4]=Sigcorr0[4,1] = Sigcorr0[2,3]=Sigcorr0[3,2] = Sigcorr0[2,4]=Sigcorr0[4,2] = Sigcorr0[3,4]=Sigcorr0[4,3] <- 0
+
+SigcorrL<-matrix(0,4,4)
+SigcorrL[1,1] = SigcorrL[2,2] = SigcorrL[3,3]=SigcorrL[4,4] <- 1
+SigcorrL[1,2]=SigcorrL[2,1] = SigcorrL[1,3]=SigcorrL[3,1] = SigcorrL[1,4]=SigcorrL[4,1] = SigcorrL[2,3]=SigcorrL[3,2] = SigcorrL[2,4]=SigcorrL[4,2] = SigcorrL[3,4]=SigcorrL[4,3]<-0.3
+
+
+SigcorrM<-matrix(0,4,4)
+SigcorrM[1,1] = SigcorrM[2,2] = SigcorrM[3,3]=SigcorrM[4,4]<-1
+SigcorrM[1,2]=SigcorrM[2,1] = SigcorrM[1,3]=SigcorrM[3,1] = SigcorrM[1,4]=SigcorrM[4,1] = SigcorrM[2,3]=SigcorrM[3,2] = SigcorrM[2,4]=SigcorrM[4,2] = SigcorrM[3,4]=SigcorrM[4,3] <- 0.5
+
+
+nest<-seq(0,500,10)
+
+# co-primary
+power_co_0 <- 
+  map(
+    .x = nest, 
+    .f = power.known.var,
+    K = 4,
+    Sigma = Sigcorr0,
+    delta = delta_est,
+    sig.level = 0.05, 
+    power = NULL
+) %>% 
+  map_dbl(pluck, "power") 
+  
+power_co_L <- 
+  map(
+    .x = nest, 
+    .f = power.known.var,
+    K = 4,
+    Sigma = SigcorrL,
+    delta = delta_est,
+    sig.level = 0.05, 
+    power = NULL
+) %>% 
+  map_dbl(pluck, "power") 
+
+power_co_M <- 
+  map(
+    .x = nest, 
+    .f = power.known.var,
+    K = 4,
+    Sigma = SigcorrM,
+    delta = delta_est,
+    sig.level = 0.05, 
+    power = NULL
+) %>% 
+  map_dbl(pluck, "power") 
+
+
+power_co_H <- 
+  map(
+    .x = nest, 
+    .f = power.known.var,
+    K = 4,
+    Sigma = SigcorrH,
+    delta = delta_est,
+    sig.level = 0.05,
+    power = NULL
+) %>% 
+  map_dbl(pluck, "power") 
+
+power_corr_coprim <- c(power_co_0, power_co_L, power_co_M, power_co_H)
+
+# Multiple 
+
+nest_low <- seq(0,200,10)
+  
+power_mult_0 <- 
+  map(
+    .x = nest_low, 
+    .f = atleast.one.endpoint,
+    K = 4,
+    Sigma = Sigcorr0,
+    delta = delta_est,
+    sig.level = 0.05/4, 
+    power = NULL
+) %>% 
+  map_dbl(pluck, "power") 
+  
+power_mult_L <- 
+  map(
+    .x = nest_low, 
+    .f = atleast.one.endpoint,
+    K = 4,
+    Sigma = SigcorrL,
+    delta = delta_est,
+   sig.level = 0.05/4, 
+    power = NULL
+) %>% 
+  map_dbl(pluck, "power") 
+
+power_mult_M <- 
+  map(
+    .x = nest_low, 
+    .f = atleast.one.endpoint,
+    K = 4,
+    Sigma = SigcorrM,
+    delta = delta_est,
+    sig.level = 0.05/4, 
+    power = NULL
+) %>% 
+  map_dbl(pluck, "power") 
+
+
+power_mult_H <- 
+  map(
+    .x = nest_low, 
+    .f = atleast.one.endpoint,
+    K = 4,
+    Sigma = SigcorrH,
+    delta = delta_est,
+    sig.level = 0.05/4, 
+    power = NULL
+) %>% 
+  map_dbl(pluck, "power") 
+
+power_corr_mult <- c(power_mult_0, power_mult_L, power_mult_M, power_mult_H)
+
+# Composite 
+
+  var0 = 0.08
+  varL = 0.07
+  varM = 0.06
+  varH = 0.05
+  
+var_ests <- c(var0, varL, varM, varH)
+
+power_comp_0 <- map_dbl(
+  .x = nest_low,
+  .f = powerfunc, 
+  mean = 0.12,
+  alpha = 0.05,
+  var = var0
+)
+
+power_comp_L <- map_dbl(
+  .x = nest_low,
+  .f = powerfunc, 
+  mean = 0.12,
+  alpha = 0.05,
+  var = varL
+)
+
+power_comp_M <- map_dbl(
+  .x = nest_low,
+  .f = powerfunc, 
+  mean = 0.12,
+  alpha = 0.05,
+  var = varM
+)
+
+power_comp_H <- map_dbl(
+  .x = nest_low,
+  .f = powerfunc, 
+  mean = 0.12,
+  alpha = 0.05,
+  var = varH
+)
+
+power_corr_comp <- c(power_comp_0, power_comp_L, power_comp_M, power_comp_H)
+
+
+# Combine 
+
+power_total <- c(power_corr_coprim, power_corr_mult, power_corr_comp)
+corr_temp <- c(rep("Zero", length(power_co_0)),
+              rep("Low", length(power_co_L)),
+              rep("Medium", length(power_co_M)),
+              rep("High", length(power_co_H))
+              )
+corr_temp_low <- c(rep("Zero", length(power_mult_0)),
+              rep("Low", length(power_mult_L)),
+              rep("Medium", length(power_mult_M)),
+              rep("High", length(power_mult_H))
+              )
+Correlation <- c(corr_temp, rep(corr_temp_low, 2))
+endpoints <- c(rep("Co-primary", length(power_corr_coprim)),
+               rep("Multiple Primary", length(power_corr_mult)),
+               rep("Composite", length(power_corr_comp))
+               )
+
+sample = c(rep(nest, 4) , rep(nest_low, 8))
+
+data_power_corr <- data.frame(sample, power_total, Correlation, endpoints)
+
+Powercorr <- 
+  ggplot(data_power_corr,
+         aes(x = sample,
+             y = power_total,
+             color = Correlation)) + 
+  geom_line() + 
+  ylim(c(0,1)) + 
+  geom_hline(yintercept = 0.8,linetype=3) +
+  ylab("Power") + 
+  xlab("Sample size per group") + 
+  scale_color_viridis(discrete = "TRUE") + 
+  theme_bw() +
+  facet_wrap(~endpoints, scales="free")+
+  labs(color="Correlation")
+
+```
+
+
+
+#### MUSE composite sample size - Table 2
+
+```{r}
+
+mean.lat = 0.20
+sig.lat = c(0.05, 0.06, 0.07, 0.08, 0.09, 0.10)
+alpha = 0.05 # two sided 0.10 in MUSE trial
+beta = 0.12 # 88% power required in MUSE trial
+
+ests = sapply(X = sig.lat, 
+       FUN = samplesize,
+         mean.lat = 0.20, 
+         mean.bin = 0.20, 
+         var.bin = 0.16, # derived using standard p*(1-p)
+         alpha = alpha, 
+         beta = beta
+       )
+
+total_sample_size = ceiling(ests[1,])*2
+
+# Empirical power not shown can't run the model so use variation in 
+# estimates of sigma to estimate directly - detailed properties of 
+# latent variable method for composite endpoints shown in 
+# McMenamin M, Barrett JK, Berglind A, Wason JM. Employing a latent variable framework to improve efficiency in composite endpoint analysis. Statistical Methods in Medical Research. 2021;30(3):702-716. doi:10.1177/0962280220970986
+
+```
+
+
+#### Empirical power - Table 3
+
+```{r}
+
+#### TABLE 3 
+
+# First obtain tables of sample sizes for K = 4 outcomes with high, medium, low and zero correlation between endpoints
+ 
+K = 4
+var_1 = var_2 = var_3 = var_4 <- 1
+rho_H <- 0.8
+rho_M <- 0.5
+rho_L <- 0.3
+rho_0 <- 0
+delta_1 = rep(0.12, 4)
+delta_2 = c(rep(0.35, 2), rep(0.15, 2))
+delta_3 = c(0.12, 0.35, 0.55, 0.10)
+delta = list(delta_1, delta_2, delta_3)
+
+Sigma_H = Sigma_M = Sigma_L = Sigma_0 <- matrix(0, nrow = K, ncol = K)
+diag(Sigma_H) = diag(Sigma_M) = diag(Sigma_L) = diag(Sigma_0) <- var_1
+
+Sigma_H[Sigma_H != diag(Sigma_H)] = rho_H
+Sigma_M[Sigma_M != diag(Sigma_M)] = rho_M
+Sigma_L[Sigma_L != diag(Sigma_L)] = rho_L
+
+Sigma_cor = list(Sigma_0, Sigma_L, Sigma_M, Sigma_H)
+
+
+ # Co-primary
+
+sample_co_1 <- 
+  map(.x = Sigma_cor,
+      .f = power.unknown.var, 
+       K = K, delta = delta_1, sig.level = 0.025, power = 0.8, n = NULL) %>%
+  map_dbl(pluck, "n")
+
+sample_co_2 <- 
+  map(.x = Sigma_cor,
+      .f = power.known.var, 
+       K = K, delta = delta_2, sig.level = 0.025, power = 0.8, n = NULL) %>%
+  map_dbl(pluck, "n")
+
+sample_co_3 <- 
+  map(.x = Sigma_cor,
+      .f = power.known.var, 
+       K = K, delta = delta_3, sig.level = 0.025, power = 0.8, n = NULL) %>%
+  map_dbl(pluck, "n") 
+
+sample_co <- ceiling(c(sample_co_1, sample_co_2, sample_co_3))
+
+
+  #### Multiple primary
+
+# Apply Bonferroni correction for K endpoints 
+
+sample_mult_1 <- 
+  map(.x = Sigma_cor,
+      .f = atleast.one.endpoint, 
+       K = K, delta = delta_1, sig.level = 0.025/K, power = 0.8, n = NULL) %>%
+  map_dbl(pluck, "n")
+
+sample_mult_2 <- 
+  map(.x = Sigma_cor,
+      .f = atleast.one.endpoint, 
+       K = K, delta = delta_2, sig.level = 0.025/K, power = 0.8, n = NULL) %>%
+  map_dbl(pluck, "n")
+
+sample_mult_3 <- 
+  map(.x = Sigma_cor,
+      .f = atleast.one.endpoint, 
+       K = K, delta = delta_3, sig.level = 0.025/K, power = 0.8, n = NULL) %>%
+  map_dbl(pluck, "n") 
+
+sample_mult <- ceiling(c(sample_mult_1, sample_mult_2, sample_mult_3))
+
+
+  # Composite 
+
+# Note this file doesn't run the composite results as these need a lot of 
+# computing power and to be run in parallel as the model needs fit to multiple
+# datasets to estimate variance in order to obtain sample size - functions to obtain 
+# power and sample size from estimated quantities included in source file for completeness 
+
+
+
+
+
+# Obtain empirical power for each sample size shown
+
+  # Co-primary
+
+set.seed(37889)
+
+pval = vector()
+emp_power = vector()
+delta_val = vector()
+sig_val = list()
+nsim = 1000 # NOTE! increase this to 100000 to get values in manuscript
+
+for(j in 1:length(sample_co)){
+
+  samp_size = sample_co[j]
+  delta_val = ifelse(j<5, delta[1], 
+                     ifelse(j>4 && j<9, delta[2], delta[3]))
+  sig_val = ifelse(j %in% c(1,5,9), Sigma_cor[1], ifelse(j %in% c(2,6,10), Sigma_cor[2], ifelse( j %in% c(3,7,11), Sigma_cor[3], Sigma_cor[4])))
+  
+for(i in 1:nsim){
+  
+# Set Y as control group 
+X = rmvnorm(n=samp_size, mean = unlist(delta_val), sigma = sig_val[[1]])
+Y = rmvnorm(n=samp_size, mean = rep(0, length(unlist(delta_val))), sigma = sig_val[[1]])
+
+pval[i] <- ifelse(mpe.z.test(X, Y, Sigma=sig_val[[1]])$p.value < 0.025, 1, 0)
+
+}
+
+  emp_power[j] = (sum(pval)/nsim)*100
+  
+}
+
+# Table of sample sizes and empirical powers for co-primary endpoints in Table 3
+emp_power_co <- tibble(sample_co, emp_power)
+
+
+
+  # Multiple primary
+
+# Define function for union-intersection z test
+
+mult.z.test <- function(X, Y, Sigma, conf.level = 0.975){
+  
+   diff <- colMeans(X) - colMeans(Y)
+    names(diff) <- paste("EP", 1:ncol(X), sep = ".")
+    n <- nrow(X)
+    m <- nrow(Y)
+    SD <- sqrt(diag(Sigma))
+    Z <- diff/(SD * sqrt(1/n + 1/m))
+    
+    statistic <- max(Z)
+    names(statistic) <- "z"
+    pval <- min(pnorm(Z, lower.tail = FALSE))
+    alpha <- (1 - conf.level)/4
+    cint <- rep(qnorm(1 - alpha), ncol(X))
+    cint <- cbind(Z - cint, Inf) * SD * sqrt(1/n + 1/m)
+    colnames(cint) <- c(paste((1 - conf.level)/4), 1)
+    rownames(cint) <- paste("EP", 1:ncol(X), sep = ".")
+    
+    alternative <- "true difference in means is larger than 0 for at least one endpoint"
+    attr(cint, "conf.level") <- conf.level
+    method <- "Union-intersection z-test"
+    rval <- list(method = method, statistic = statistic, p.value = pval, 
+        conf.int = cint, estimate = diff, alternative = alternative)
+    class(rval) <- "mpe.test"
+    return(rval)
+  
+}
+
+set.seed(37889)
+
+pval = vector()
+emp_power = vector()
+delta_val = vector()
+sig_val = list()
+nsim = 1000 # NOTE! increase this to 100000 to get values in manuscript
+
+for(j in 1:length(sample_mult)){
+
+  samp_size = sample_mult[j]
+  delta_val = ifelse(j<5, delta[1], 
+                     ifelse(j>4 && j<9, delta[2], delta[3]))
+  sig_val = ifelse(j %in% c(1,5,9), Sigma_cor[1], ifelse(j %in% c(2,6,10), Sigma_cor[2], ifelse( j %in% c(3,7,11), Sigma_cor[3], Sigma_cor[4])))
+  
+for(i in 1:nsim){
+  
+# Set Y as control group 
+X = rmvnorm(n=samp_size, mean = unlist(delta_val), sigma = sig_val[[1]])
+Y = rmvnorm(n=samp_size, mean = rep(0, length(unlist(delta_val))), sigma = sig_val[[1]])
+
+pval[i] <- ifelse(mult.z.test(X, Y, Sigma=sig_val[[1]])$p.value < 0.025/4, 1, 0)
+
+}
+
+  emp_power[j] = (sum(pval)/nsim)*100
+  
+}
+
+emp_power
+
+
+# Table of sample sizes and empirical powers for multiple primary endpoints in Table 3
+emp_power_mult <- tibble(sample_mult, emp_power)
+
+```
+
+
+
+#### Family-wise error rate - Figure 3
+
+
+```{r}
+
+### FIGURE 3
+
+
+# Show effect of different correlations between endpoints on both unadjusted and adjusted FWER 
+
+# Add more Sigma cols 
+
+Sigma_VH <- matrix(0, nrow = K, ncol = K)
+diag(Sigma_VH) <- var_1
+Sigma_VH[Sigma_VH != diag(Sigma_VH)] = 1
+
+Sigma_FWER_4 <- list(Sigma_0, Sigma_L, Sigma_M, Sigma_H, Sigma_VH)
+Sigma_FWER_3 <- list(Sigma_0[1:3, 1:3], Sigma_L[1:3, 1:3], Sigma_M[1:3, 1:3], 
+                     Sigma_H[1:3, 1:3], Sigma_VH[1:3, 1:3])
+Sigma_FWER_2 <- list(Sigma_0[1:2, 1:2], Sigma_L[1:2, 1:2], Sigma_M[1:2, 1:2], 
+                     Sigma_H[1:2, 1:2], Sigma_VH[1:2, 1:2])
+
+# 4 endpoints 
+
+FWER_unadj_4 <- map(.x = Sigma_FWER_4,
+                  .f = FWER,
+                  K=4, delta = c(0,0,0,0), n=300, adjust = FALSE) %>%
+  map_dbl(pluck, "FWER")
+
+
+FWER_adj_4 <- map(.x = Sigma_FWER_4,
+                  .f = FWER,
+                  K=4, delta = c(0,0,0,0), n=300, adjust = TRUE) %>%
+  map_dbl(pluck, "FWER")
+
+
+# 3 endpoints
+
+FWER_unadj_3 <- map(.x = Sigma_FWER_3,
+                  .f = FWER,
+                  K=3, delta = c(0,0,0), n=300, adjust = FALSE) %>%
+  map_dbl(pluck, "FWER")
+
+
+FWER_adj_3 <- map(.x = Sigma_FWER_3,
+                  .f = FWER,
+                  K=3, delta = c(0,0,0), n=300, adjust = TRUE) %>%
+  map_dbl(pluck, "FWER")
+
+
+# 2 endpoints
+
+FWER_unadj_2 <- map(.x = Sigma_FWER_2,
+                  .f = FWER,
+                  K=2, delta = c(0,0), n=300, adjust = FALSE) %>%
+  map_dbl(pluck, "FWER")
+
+
+FWER_adj_2 <- map(.x = Sigma_FWER_2,
+                  .f = FWER,
+                  K=2, delta = c(0,0), n=300, adjust = TRUE) %>%
+  map_dbl(pluck, "FWER")
+
+
+# Overall results
+
+FWER_results <- tibble(corr = rep(c(0, 0.3, 0.5, 0.8, 1.0), 3), 
+                       endpt = c(rep("4", 5), rep("3", 5), rep("2", 5)),
+                       FWER_unadj = c(FWER_unadj_4, FWER_unadj_3, FWER_unadj_2),
+                       FWER_adj = c(FWER_adj_4, FWER_adj_3, FWER_adj_2)
+                       )
+
+ggplot(data = FWER_results) +
+  geom_line(aes(x = corr, y = FWER_unadj, linetype = endpt,  colour = "Unadjusted")) +
+  geom_line(aes(x = corr, y = FWER_adj, linetype = endpt, colour = "Adjusted")) +
+  geom_point(aes(x = corr, y = FWER_adj), shape = 4, size = 2, colour = "DarkBlue") +
+  geom_point(aes(x = corr, y = FWER_unadj), shape = 4, size = 2, colour = "DarkGreen") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank())+
+  geom_hline(yintercept = 0.025) +
+  ylim(c(0,0.10)) +
+  ylab("Family wise error rate") +
+  xlab("Correlation") +
+  labs(linetype = "Number of \noutcomes",
+       colour = "Type") +
+  scale_colour_manual(values = c("DarkBlue", "DarkGreen"))
+  
+
+
+```
